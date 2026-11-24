@@ -3,3 +3,8 @@ change_data.py
 gridfs/20MB_file_python
 env
 sharded_cluster/data/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+csfle/local_keyfile
+qe/local_keyfile

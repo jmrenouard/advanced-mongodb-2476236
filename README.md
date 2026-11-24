@@ -10,6 +10,40 @@ _See the readme file in the main branch for updated instructions and information
 
 This repository has folders for each of the videos in the course that requires a lot of typing.
 
+Browse the full English [Diátaxis documentation](docs/index.md) for tutorials, ASD-STE100 operational runbooks, cluster/module references, and architecture notes.
+
+## Course Modules Overview
+
+```mermaid
+flowchart LR
+    REPO["Advanced MongoDB Labs"] --> FEAT["Features: change-streams & gridfs"]
+    REPO --> COLL["Collections: clustered, timeseries, views, materialized_views"]
+    REPO --> SCALE["Scaling: sharded_cluster (ports 27018-27027) & datasets"]
+    REPO --> SEC["Security: csfle, qe & exercises"]
+```
+
+| Directory | Topic | Key Files |
+| :--- | :--- | :--- |
+| `change-streams/` | Watch operations & resume-token recovery | `main.py`, `change_stream.py`, `change_stream_2.py`, `resumable_change_stream.py` |
+| `clustered_collections/` | Clustered `_id` collections | `create_clustered_collection.js` |
+| `csfle/` | Explicit Client-Side Field Level Encryption | `main.py`, `script`, `requirements.txt` |
+| `qe/` | Queryable Encryption with equality queries | `main.py`, `script`, `requirements.txt` |
+| `exercises/` | Course challenge solutions | `exercise_1_5.py`, `exercise_4_4.py`, `script` |
+| `gridfs/` | Binary storage (`> 16 MB`) with GridFS | `main.py`, `20MB_file`, `requirements.txt` |
+| `materialized_views/` | On-demand `$merge` views | `create_view.js`, `data_change.js`, `update_view.js` |
+| `timeseries/` | Time-series stock price collections | `create_timeseries_collection.js`, `add_stock_data.js`, `sample_query.js` |
+| `views/` | Standard read-only aggregation view | `sample_query.js` |
+| `sharded_cluster/` | 9-node sharded lab (`27018–27027`) | `mongos.conf`, `cfgsrv1-3.conf`, `m1-6.conf`, `script`–`script6` |
+| `datasets/` | Sample JSON datasets & `mongoimport` script | `books.json`, `filme.json`, `orders.json`, `stocks.json`, `script` |
+
+## Verification
+
+Run the automated Python test suite offline (no running MongoDB cluster required):
+
+```bash
+python -B -m unittest discover -s tests -p "test_*.py" -v
+```
+
 
 ### Instructor
 

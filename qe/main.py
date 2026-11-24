@@ -1,3 +1,5 @@
+import base64
+import binascii
 import os
 import pymongo
 
@@ -7,9 +9,26 @@ from bson.codec_options import CodecOptions
 from bson.binary import STANDARD
 
 
+def load_local_master_key(path='local_keyfile'):
+    """Read local master key file, decoding base64 text produced by helper script."""
+    with open(path, 'rb') as key_file:
+        raw = key_file.read()
+    if len(raw) == 96:
+        return raw
+    stripped = raw.strip()
+    if len(stripped) == 96:
+        return stripped
+    try:
+        decoded = base64.b64decode(stripped, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("local_keyfile must contain 96 raw bytes or valid base64") from exc
+    if len(decoded) != 96:
+        raise ValueError("Decoded local_keyfile must be 96 bytes")
+    return decoded
+
+
 def main():
-    local_main_key_file = open('local_keyfile', 'r')
-    local_main_key = local_main_key_file.read()
+    local_main_key = load_local_master_key('local_keyfile')
     kms_providers = {"local": {"key": local_main_key}}
 
     # The MongoDB namespace (db.collection) used to store
@@ -80,8 +99,6 @@ def main():
     except Exception as e:
         raise Exception("Exception creating encrypted collection: ", e)
 
-
-
     coll = client.shop.orders_encrypted
     coll.insert_one(document)
 
@@ -99,4 +116,6 @@ def main():
     client.close()
     unencrypted_client.close()
 
-main()
+
+if __name__ == "__main__":
+    main()

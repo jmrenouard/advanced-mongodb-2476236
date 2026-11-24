@@ -26,11 +26,12 @@ Run the key generation helper inside `/tmp` and verify that `load_local_master_k
 
 ```bash
 echo $(head -c 96 /dev/urandom | base64 | tr -d '\n') > /tmp/test_local_keyfile
-python -B -c "import importlib.util, types, sys; \
+python -W default -B -c "import importlib.util, types, sys; \
   sys.modules.setdefault('pymongo', types.SimpleNamespace()); \
   sys.modules.setdefault('pymongo.encryption', types.SimpleNamespace(Algorithm=types.SimpleNamespace(), ClientEncryption=object)); \
   sys.modules.setdefault('pymongo.encryption_options', types.SimpleNamespace(AutoEncryptionOpts=object)); \
-  import importlib.machinery; m = importlib.machinery.SourceFileLoader('csfle_main', 'csfle/main.py').load_module(); \
+  spec = importlib.util.spec_from_file_location('csfle_main', 'csfle/main.py'); \
+  m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); \
   key = m.load_local_master_key('/tmp/test_local_keyfile'); print('KEY_LEN', len(key))"
 rm -f /tmp/test_local_keyfile
 ```

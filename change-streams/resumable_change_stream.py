@@ -15,6 +15,7 @@ def run_change_stream(client, resume_token=None, sleep=1):
                     print('')  # for readability only
                     resume_token = stream.resume_token
                     sleep = 1
+            return
         except pymongo.errors.PyMongoError:
             # Stop if initialization failed before receiving any resume token.
             if resume_token is None:

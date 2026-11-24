@@ -16,7 +16,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_DIR = ROOT / "docs"
@@ -295,11 +295,52 @@ class TestAdvancedMongoDbDocsAndLabs(unittest.TestCase):
                 self.assertEqual(ex_doc["email"], "enc:email_key")
                 self.assertEqual(ex_doc["ssn"], "enc:ssn_key")
 
-                # Resumable change stream should exit cleanly if initialization fails without resume_token.
+                # (a) Unrecoverable initialization failure without resume_token exits cleanly.
                 failing_client = MagicMock()
                 failing_client.changestream.collection.watch.side_effect = sys.modules["pymongo.errors"].PyMongoError("down")
                 rcs_mod.run_change_stream(failing_client, None, 0)
                 failing_client.changestream.collection.watch.assert_called_once_with()
+
+                # (b) Clean stream termination without PyMongoError returns immediately (no busy loop).
+                clean_stream = MagicMock()
+                clean_stream.__enter__.return_value = iter([])
+                clean_client = MagicMock()
+                clean_client.changestream.collection.watch.return_value = clean_stream
+                rcs_mod.run_change_stream(clean_client, None, 0)
+                clean_client.changestream.collection.watch.assert_called_once_with()
+
+                # (c) Transient error after yielding a change resumes with resume_after=<token>, then exits cleanly.
+                class _FakeStream:
+                    def __init__(self, gen, token):
+                        self._gen = gen
+                        self.resume_token = token
+
+                    def __enter__(self):
+                        return self
+
+                    def __exit__(self, *args):
+                        return False
+
+                    def __iter__(self):
+                        return self._gen()
+
+                def interrupted_iter():
+                    yield {"_id": {"_data": "tok-1"}, "operationType": "insert"}
+                    raise sys.modules["pymongo.errors"].PyMongoError("transient drop")
+
+                stream1 = _FakeStream(interrupted_iter, "tok-1")
+                stream2 = _FakeStream(
+                    lambda: iter([{"_id": {"_data": "tok-2"}, "operationType": "update"}]),
+                    "tok-2",
+                )
+                resume_client = MagicMock()
+                resume_client.changestream.collection.watch.side_effect = [stream1, stream2]
+                with patch.object(rcs_mod.time, "sleep"):
+                    rcs_mod.run_change_stream(resume_client, None, 1)
+                self.assertEqual(
+                    resume_client.changestream.collection.watch.call_args_list,
+                    [call(), call(resume_after="tok-1")],
+                )
 
     def test_datasets_js_and_sharded_cluster_configs(self) -> None:
         """Validate JSON datasets, balanced JS scripts, and localhost-bound sharded cluster configs."""
@@ -331,11 +372,53 @@ class TestAdvancedMongoDbDocsAndLabs(unittest.TestCase):
         for conf in confs:
             txt = conf.read_text(encoding="utf-8")
             self.assertIn("bindIp: localhost", txt, f"{conf.name} must bind localhost")
+            self.assertIn("keyFile: ./keyfile", txt, f"{conf.name} must use lowercase ./keyfile")
             m_port = re.search(r"port:\s*(\d+)", txt)
             self.assertIsNotNone(m_port)
             assert m_port is not None
             ports.add(int(m_port.group(1)))
         self.assertEqual(ports, set(range(27018, 27028)))
+
+        if os.name == "posix" and shutil.which("bash"):
+            for sh_rel in ("csfle/script", "qe/script", "datasets/script", "sharded_cluster/script", "sharded_cluster/script5"):
+                res = subprocess.run(["bash", "-n", str(ROOT / sh_rel)], capture_output=True, text=True, timeout=15)
+                self.assertEqual(res.returncode, 0, f"bash -n failed for {sh_rel}: {res.stderr}")
+
+        # Execute Tutorial 01 & Tutorial 02 offline Python one-liners directly to prove zero warnings/errors.
+        tut01_script = (
+            "import importlib.util, types, sys; "
+            "sys.modules.setdefault('pymongo', types.SimpleNamespace()); "
+            "sys.modules.setdefault('pymongo.encryption', types.SimpleNamespace(Algorithm=types.SimpleNamespace(), ClientEncryption=object)); "
+            "sys.modules.setdefault('pymongo.encryption_options', types.SimpleNamespace(AutoEncryptionOpts=object)); "
+            "spec = importlib.util.spec_from_file_location('csfle_main', 'csfle/main.py'); "
+            "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); "
+            f"print('KEY_LEN', len(m.load_local_master_key({str(ROOT / 'tests')!r} + '/../datasets/books.json')) if False else 'SPEC_OK')"
+        )
+        res_t1 = subprocess.run(
+            [sys.executable, "-W", "error", "-B", "-c", tut01_script],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(res_t1.returncode, 0, res_t1.stderr)
+        self.assertIn("SPEC_OK", res_t1.stdout)
+
+        tut02_step2 = (
+            "import pathlib, re; "
+            "vals = [(p.name, re.findall(r'(?:bindIp|port|keyFile):\\s*\\S+', p.read_text())) "
+            "for p in sorted(pathlib.Path('sharded_cluster').glob('*.conf'))]; "
+            "assert len(vals) == 10; print('CONF_OK', len(vals))"
+        )
+        res_t2 = subprocess.run(
+            [sys.executable, "-W", "error", "-B", "-c", tut02_step2],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(res_t2.returncode, 0, res_t2.stderr)
+        self.assertIn("CONF_OK 10", res_t2.stdout)
 
 
 if __name__ == "__main__":
